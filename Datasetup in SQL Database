@@ -1,0 +1,59 @@
+
+Creating Product, Sales, Customer Tables:
+
+3.a) Creating Product Table 
+
+          CREATE TABLE product (
+              ProductID INT PRIMARY KEY,        
+              Name NVARCHAR(100),           
+              StandardCost DECIMAL(18, 2),            
+          	ModifiedDate DATETIME);
+          
+          INSERT INTO dbo.product (ProductID, Name, StandardCost, ModifiedDate)
+          SELECT ProductID, 
+                 Name, 
+                 StandardCost, 
+                 ModifiedDate
+          FROM SalesLT.Product;
+
+3.b) Creating Sales Table
+
+          CREATE TABLE sales (
+              salesOrderID INT PRIMARY KEY,         
+              orderDate DATETIME NOT NULL,          
+              customerID INT NOT NULL,              
+              orderValue DECIMAL(18, 2) NOT NULL,    
+          	ModifiedDate DATETIME);
+          
+          INSERT INTO dbo.sales (salesOrderID, orderDate, customerID, orderValue, ModifiedDate)
+          SELECT SalesOrderID, 
+                 OrderDate, 
+                 CustomerID, 
+                 TotalDue, 
+                 ModifiedDate
+          FROM SalesLT.SalesOrderHeader;
+
+3.c) Creating Customer Table
+
+          CREATE TABLE customer (
+              customerID INT,
+              Title NVARCHAR(50),
+              FirstName NVARCHAR(100),
+              MiddleName NVARCHAR(100),
+              LastName NVARCHAR(100),
+              CompanyName NVARCHAR(100),
+              EmailAddress NVARCHAR(255),
+              Phone NVARCHAR(50),
+              ModifiedDate DATETIME);
+          
+          INSERT INTO dbo.customer (customerID, Title, FirstName, MiddleName, LastName, CompanyName, EmailAddress, Phone, ModifiedDate)
+          SELECT customerID, 
+                 Title, 
+                 FirstName, 
+                 MiddleName, 
+                 LastName, 
+                 CompanyName, 
+                 EmailAddress, 
+                 Phone, 
+                 ModifiedDate
+          FROM SalesLT.Customer;
