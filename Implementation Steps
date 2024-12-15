@@ -1,0 +1,15 @@
+In Azure:
+
+Step-1: Creation of resource group
+Step-2: Creation of SQL database along with SQL SERVER
+Step-3: Datasetup in SQL database 
+        a) Creating product table and loading the sample database
+        b) Creating sales table and loading the sample database
+        c) Creating customer table and loading the sample database
+Step-4: Creating the Keyvalult
+        a) Creating secret_scope 
+        b) Create secrets
+Step-5: Creating metadata table and insert required input records/values
+Step-6: Create bronze, silver tables
+Step-7: Implement load strategies and load data into bronze and silver tables
+Step-8: Create views in gold layer out of silver tables
