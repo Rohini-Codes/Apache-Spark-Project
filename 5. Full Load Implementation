@@ -1,0 +1,111 @@
+from pyspark.sql.functions import max, current_timestamp
+
+# Switch to the Hive metastore catalog and create required databases if not already present
+spark.sql("USE CATALOG hive_metastore")
+spark.sql("CREATE DATABASE IF NOT EXISTS hive_metastore.metadata")
+spark.sql("CREATE DATABASE IF NOT EXISTS hive_metastore.bronze")
+spark.sql("CREATE DATABASE IF NOT EXISTS hive_metastore.silver")
+spark.sql("CREATE DATABASE IF NOT EXISTS hive_metastore.gold")
+
+# Create a master table in the metadata database to store source, load strategy, and other details
+spark.sql("""
+    CREATE TABLE IF NOT EXISTS metadata.master_tble (
+       batch_id STRING,  -- Primary key 
+       source_name STRING,
+       data_load_strategy STRING,
+       source_tbl_name STRING,
+       bronze_tbl_name STRING,
+       silver_tbl_name STRING,
+       watermark_column TIMESTAMP -- Source table max modified datetime
+    )
+    USING DELTA
+""")
+
+# Insert records into the metadata master table
+spark.sql("""
+    INSERT OVERWRITE TABLE metadata.master_tble 
+    VALUES 
+        ('100', 'azure_sql', 'FullLoad', 'dbo.product', 'bronze.product', 'silver.product', '2000-09-07 15:23:08.535000'),
+        ('101', 'azure_sql', 'DeltaLoad_SCD1', 'dbo.sales', 'bronze.sales', 'silver.sales', '2000-09-07 15:23:08.535000'),
+        ('102', 'azure_sql', 'DeltaLoad_SCD2', 'dbo.customer', 'bronze.customer', 'silver.customer', '2000-09-07 15:23:08.535000')
+""")
+
+# Get the batch_id from Databricks widget input
+import dbutils
+
+dbutils.widgets.text("batch_id", "")
+batch_id = dbutils.widgets.get("batch_id")
+
+# Query the master table to fetch details for the provided batch_id
+query = f"SELECT * FROM metadata.master_tble WHERE batch_id = '{batch_id}'"
+master_tbl_df = spark.sql(query)
+display(master_tbl_df)
+
+# Extract required values from the master table for the batch_id
+src_tbl_name = master_tbl_df.select("source_tbl_name").collect()[0][0]
+bronze_tbl_name = master_tbl_df.select("bronze_tbl_name").collect()[0][0]
+silver_tbl_name = master_tbl_df.select("silver_tbl_name").collect()[0][0]
+data_load_strategy = master_tbl_df.select("data_load_strategy").collect()[0][0]
+prev_modified_date = master_tbl_df.select("watermark_column").collect()[0][0]
+
+# Print extracted values for verification
+print("Source Table Name:", src_tbl_name)
+print("Bronze Table Name:", bronze_tbl_name)
+print("Silver Table Name:", silver_tbl_name)
+print("Data Load Strategy:", data_load_strategy)
+print("Previous Watermark Date:", prev_modified_date)
+
+# Source connection credentials (retrieved from secret scope)
+my_secret_scope = "clever_secret_scope"
+src_driver = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+src_server_name = dbutils.secrets.get(my_secret_scope, 'srcservername')
+src_port = dbutils.secrets.get(my_secret_scope, 'srcport')
+src_db_name = dbutils.secrets.get(my_secret_scope, 'srcdbname')
+src_user_name = dbutils.secrets.get(my_secret_scope, 'srcusername')
+src_password = dbutils.secrets.get(my_secret_scope, 'srcpassword')
+src_url = f"jdbc:sqlserver://{src_server_name}:{src_port};database={src_db_name};user={src_user_name}@asrardb;password={src_password};encrypt=true;trustServerCertificate=false;hostNameInCertificate=*.database.windows.net;loginTimeout=30;"
+
+# Extract data from the source table using JDBC if the data load strategy is 'FullLoad'
+if data_load_strategy == 'FullLoad':
+    source_df = (
+        spark.read
+        .format("jdbc")
+        .option("url", src_url)
+        .option("dbtable", src_tbl_name)  
+        .option("user", src_user_name)
+        .option("password", src_password)
+        .load()
+    ) 
+else:
+    print("Please pass correct batch id to the notebook")
+
+# Compute the maximum ModifiedDate from the source dataframe
+max_date_df = source_df.agg(max("ModifiedDate").alias("max_ModifiedDate"))
+max_date = max_date_df.collect()[0]["max_ModifiedDate"]
+src_max_modified_date = "{}".format(max_date)
+print("Maximum Modified Date from Source:", src_max_modified_date)
+
+# Drop duplicate records from the source dataframe
+source_df_nodup = source_df.dropDuplicates()
+
+# Add audit column with current timestamp to the source dataframe
+source_df_add_col = source_df_nodup.withColumn("load_date", current_timestamp())
+
+# Write the data to Bronze and Silver tables and update the watermark in the metadata table
+if data_load_strategy == 'FullLoad':
+    # Write data to Bronze table
+    source_df_add_col.write.mode("overwrite").saveAsTable(bronze_tbl_name)
+    
+    # Read from Bronze and write to Silver table
+    bronze_df = spark.sql(f"SELECT * FROM {bronze_tbl_name}")
+    bronze_df.write.mode("overwrite").saveAsTable(silver_tbl_name)
+    
+    # Update the watermark column in the metadata master table
+    update_batch = f"""
+        UPDATE metadata.master_tble
+        SET watermark_column = '{src_max_modified_date}'
+        WHERE batch_id = '{batch_id}'
+    """
+    spark.sql(update_batch)
+else:
+    print("Please pass correct batch id to the notebook")
