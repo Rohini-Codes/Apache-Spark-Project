@@ -1,1 +1,6 @@
-
+# Switch to the Hive metastore catalog and create required databases if not already present
+spark.sql("USE CATALOG hive_metastore")
+spark.sql("CREATE DATABASE IF NOT EXISTS hive_metastore.metadata")
+spark.sql("CREATE DATABASE IF NOT EXISTS hive_metastore.bronze")
+spark.sql("CREATE DATABASE IF NOT EXISTS hive_metastore.silver")
+spark.sql("CREATE DATABASE IF NOT EXISTS hive_metastore.gold")
